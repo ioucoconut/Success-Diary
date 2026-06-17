@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>个人价值智能系统</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            warm: { 50: '#fefbf6', 100: '#fdf5e8', 200: '#faecd0', 300: '#f5dbb0', 400: '#e8c080',
+              500: '#d4a55a', 600: '#c08a3a', 700: '#9a6b2e', 800: '#7d5428', 900: '#674523' }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-warm-50 dark:bg-gray-900 min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // AI Models Config
+    const AI_MODELS = [
+      { id: 'claude', name: 'Claude', provider: 'Anthropic', 
+        baseUrl: 'https://api.anthropic.com/v1/messages', modelName: 'claude-sonnet-4-20250514',
+        headers: { 'anthropic-version': '2023-06-01' }, format: 'anthropic' },
+      { id: 'glm', name: 'GLM', provider: '智谱AI',
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', modelName: 'glm-4', format: 'openai' },
+      { id: 'deepseek', name: 'DeepSeek', provider: '深度求索',
+        baseUrl: 'https://api.deepseek.com/v1/chat/completions', modelName: 'deepseek-chat', format: 'openai' },
+      { id: 'openai', name: 'OpenAI', provider: 'OpenAI',
+        baseUrl: 'https://api.openai.com/v1/chat/completions', modelName: 'gpt-4o', format: 'openai' },
+      { id: 'gemini', name: 'Gemini', provider: 'Google',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent', format: 'gemini' },
+      { id: 'qwen', name: 'Qwen', provider: '阿里云',
+        baseUrl: 'https://dashscope.aliyuncs.com/api/text/chat', modelName: 'qwen-max', format: 'qwen' }
+    ];
+
+    // ⚠️ AI API 配置区 - 开发者预置
+    const AI_CONFIG = {
+      modelId: 'glm',     // 默认使用的模型：claude, glm, deepseek, openai, gemini, qwen
+      apiKey: ''          // API Key 已移至后端管理
+    };
+
+    // Local Storage Utils
+    const LocalStorage = {
+      get: (k, d) => { try { const i = localStorage.getItem(k); return i ? JSON.parse(i) : d; } catch { return d; } },
+      set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
+      remove: (k) => localStorage.removeItem(k)
+    };
+
+    // Supabase Client - 开发者预置配置
+    let supabaseClient = null;
+    
+    // ⚠️ 开发者配置区 - 请在这里填入你的 Supabase 配置
+    const SUPABASE_CONFIG = {
+      url: 'https://sykjdigleucipiggmckk.supabase.co',  // 例如: 'https://xxxxxx.supabase.co'
+      key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5a2pkaWdsZXVjaXBpZ2dtY2trIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMjIyNjksImV4cCI6MjA5NjY5ODI2OX0.CaQffzcvmDlqBlSAl3I8C_yFig-Q2OIn4EQxE_Yfyb0'   // 例如: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+    };
+    
+    const getSupabase = () => {
+      if (supabaseClient) return supabaseClient;
+      
+      // 优先使用代码中预置的配置
+      if (SUPABASE_CONFIG.url && SUPABASE_CONFIG.key) {
+        console.log('🚀 初始化 Supabase:', { url: SUPABASE_CONFIG.url, key: SUPABASE_CONFIG.key.substring(0, 20) + '...' });
+        supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
+        return supabaseClient;
+      }
+      
+      // 回退到本地存储的配置（用于开发调试）
+      const cfg = LocalStorage.get('supabase_config', null);
+      if (cfg && cfg.url && cfg.key) {
+        supabaseClient = window.supabase.createClient(cfg.url, cfg.key);
+      }
+      return supabaseClient;
+    };
+
+    // Unified Storage
+    const Storage = {
+      supabase: null, user: null,
+      init(u) { this.supabase = getSupabase(); this.user = u; },
+      
+      async get(key, def = null) {
+        console.log('📦 Storage.get:', { key, user: this.user?.id, supabase: !!this.supabase });
+        if (this.user && this.supabase) {
+          try {
+            if (key === 'entries') {
+              console.log('🔄 从 Supabase 获取 entries...');
+              const { data, error } = await this.supabase.from('entries').select('*').eq('user_id', this.user.id).order('date', { ascending: false });
+              console.log('📊 Supabase 响应:', { data: data?.length, error });
+              if (!error && data) return data.map(e => ({ ...e, tags: e.tags || [], strengths: e.strengths || [], analysis: e.analysis || null }));
+            } else if (key === 'aggregation') {
+              const { data, error } = await this.supabase.from('aggregation').select('*').eq('user_id', this.user.id).single();
+              if (!error && data) return data;
+            }
+          } catch (e) { console.warn('Supabase fetch failed:', e); }
+        }
+        return LocalStorage.get(key, def);
+      },
+
+      async set(key, value) {
+        LocalStorage.set(key, value);
+        if (this.user && this.supabase) {
+          try {
+            if (key === 'entries') {
+              for (const e of value) {
+                const existing = await this.supabase.from('entries').select('id').eq('user_id', this.user.id).eq('date', e.date).single();
+                if (existing.data) {
+                  await this.supabase.from('entries').update(e).eq('id', existing.data.id);
+                } else {
+                  await this.supabase.from('entries').insert({ ...e, user_id: this.user.id });
+                }
+              }
+            } else if (key === 'aggregation') {
+              const existing = await this.supabase.from('aggregation').select('id').eq('user_id', this.user.id).single();
+              if (existing.data) {
+                await this.supabase.from('aggregation').update(value).eq('id', existing.data.id);
+              } else {
+                await this.supabase.from('aggregation').insert({ ...value, user_id: this.user.id });
+              }
+            }
+          } catch (e) { console.warn('Supabase sync failed:', e); }
+        }
+        return true;
+      }
+    };
+
+    // API Service
+    const callAI = async (cfg, prompt) => {
+      // 使用 Vercel 部署的后端
+      const url = 'https://success-diary-eta.vercel.app/api/chat';
+      
+      console.log('🚀 发送请求给 Vercel 后端...');
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelId: cfg.modelId,
+          prompt: prompt
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (!res.ok) {
+        console.error('❌ 后端返回错误:', data.error);
+        throw new Error(`后端错误: ${data.error}`);
+      }
+      
+      console.log('✅ 收到后端解析好的结果:', data.text);
+      return data.text;
+    };
+
+    // Auth Page
+    function AuthPage({ onLogin }) {
+      const [mode, setMode] = useState('login');
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+
+      const handleSubmit = async (e) => {
+        e.preventDefault(); setError(''); setLoading(true);
+        const supabase = getSupabase();
+        try {
+          const { data, error: err } = mode === 'login'
+            ? await supabase.auth.signInWithPassword({ email, password })
+            : await supabase.auth.signUp({ email, password });
+          if (err) throw err;
+          if (mode === 'signup' && !data.session) {
+            alert('验证邮件已发送，请查收');
+          } else {
+            onLogin(data.user);
+          }
+        } catch (err) { setError(err.message); }
+        finally { setLoading(false); }
+      };
+
+      return (<div className="min-h-screen flex items-center justify-center p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-6">
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-white">个人价值智能系统</h1>
+            <p className="text-gray-500 dark:text-gray-400">发现你的核心价值</p>
+          </div>
+          <div className="flex mb-6">
+            <button onClick={() => setMode('login')} className={`flex-1 py-2 rounded-xl font-medium transition-colors ${mode === 'login' ? 'bg-warm-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600'}`}>登录</button>
+            <button onClick={() => setMode('signup')} className={`flex-1 py-2 rounded-xl font-medium transition-colors ${mode === 'signup' ? 'bg-warm-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600'}`}>注册</button>
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">邮箱</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-warm-500 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">密码</label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-warm-500 outline-none" />
+            </div>
+            {error && <p className="text-red-500 text-sm">{error}</p>}
+            <button type="submit" disabled={loading} className="w-full py-3 bg-warm-500 hover:bg-warm-600 disabled:bg-gray-300 text-white rounded-xl font-medium">
+              {loading ? '加载中...' : (mode === 'login' ? '登录' : '注册')}
+            </button>
+          </form>
+        </div>
+      </div>);
+    }
+
+    // Config Modals
+    function ApiConfigModal({ onSave, onClose, current }) {
+      const [cfg, setCfg] = useState({ modelId: current?.modelId || 'claude', apiKey: current?.apiKey || '' });
+      const [error, setError] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!cfg.apiKey.trim()) { setError('请输入API Key'); return; }
+        LocalStorage.set('ai_config', cfg);
+        onSave(cfg);
+      };
+
+      return (<div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full p-6">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-6">AI配置</h2>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">选择AI模型</label>
+              <div className="grid grid-cols-2 gap-2">
+                {AI_MODELS.map(m => (<button key={m.id} type="button" onClick={() => setCfg(p => ({ ...p, modelId: m.id }))} className={`p-3 rounded-xl border-2 transition-colors ${cfg.modelId === m.id ? 'border-warm-500 bg-warm-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                  <div className="font-medium text-gray-800 dark:text-white text-sm">{m.name}</div>
+                  <div className="text-xs text-gray-500">{m.provider}</div>
+                </button>))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">API Key</label>
+              <input type="password" value={cfg.apiKey} onChange={(e) => setCfg(p => ({ ...p, apiKey: e.target.value }))} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-warm-500 outline-none" />
+            </div>
+            {error && <p className="text-red-500 text-sm">{error}</p>}
+            <div className="flex gap-3">
+              <button type="button" onClick={onClose} className="flex-1 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-medium">取消</button>
+              <button type="submit" className="flex-1 py-3 bg-warm-500 hover:bg-warm-600 text-white rounded-xl font-medium">保存</button>
+            </div>
+          </form>
+        </div>
+      </div>);
+    }
+
+    function SupabaseConfigModal({ onClose }) {
+      const [cfg, setCfg] = useState(LocalStorage.get('supabase_config', { url: '', key: '' }));
+      const [error, setError] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!cfg.url.trim() || !cfg.key.trim()) { setError('请填写完整配置'); return; }
+        LocalStorage.set('supabase_config', cfg);
+        supabaseClient = null;
+        onClose();
+      };
+
+      return (<div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full p-6">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-6">云端同步配置</h2>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Supabase URL</label>
+              <input type="text" value={cfg.url} onChange={(e) => setCfg(p => ({ ...p, url: e.target.value }))} placeholder="https://xxxxxx.supabase.co" className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-warm-500 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Supabase API Key</label>
+              <input type="password" value={cfg.key} onChange={(e) => setCfg(p => ({ ...p, key: e.target.value }))} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-warm-500 outline-none" />
+            </div>
+            {error && <p className="text-red-500 text-sm">{error}</p>}
+            <div className="flex gap-3">
+              <button type="button" onClick={onClose} className="flex-1 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-medium">取消</button>
+              <button type="submit" className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-medium">保存</button>
+            </div>
+          </form>
+        </div>
+      </div>);
+    }
+
+    // Bottom Nav
+    function BottomNav({ active, onChange }) {
+      const items = [
+        { id: 'daily', label: '今日记录', icon: '📝' },
+        { id: 'map', label: '能力图谱', icon: '🗺️' },
+        { id: 'pitch', label: '价值主张', icon: '💎' },
+        { id: 'assets', label: '我的资产', icon: '📦' },
+        { id: 'settings', label: '设置', icon: '⚙️' }
+      ];
+      return (<nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 py-2 z-40 md:hidden">
+        <div className="flex justify-around">
+          {items.map(item => (<button key={item.id} onClick={() => onChange(item.id)} className={`flex flex-col items-center py-2 px-3 rounded-xl transition-colors ${active === item.id ? 'text-warm-600 bg-warm-50' : 'text-gray-500'}`}>
+            <span className="text-xl mb-1">{item.icon}</span>
+            <span className="text-xs font-medium">{item.label}</span>
+          </button>))}
+        </div>
+      </nav>);
+    }
+
+    // Daily Reflection Section
+    function DailyReflection({ aiConfig }) {
+      const [form, setForm] = useState({ completed: '', achievement: '', difficulty: '', helped: '', learned: '' });
+      const [loading, setLoading] = useState(false);
+      const [result, setResult] = useState(null);
+
+      const handleSubmit = async () => {
+        const entry = { id: Date.now(), date: new Date().toISOString(), raw: JSON.stringify(form), tags: [], strengths: [], analysis: null };
+        const entries = await Storage.get('entries', []);
+        entries.unshift(entry);
+        await Storage.set('entries', entries);
+
+        if (aiConfig?.apiKey) {
+          setLoading(true);
+          try {
+            const prompt = `分析这段中文反思，识别优势、证据、价值、能量来源、职业信号。JSON格式返回：${JSON.stringify(form)}`;
+            const resp = await callAI(aiConfig, prompt);
+            const analysis = JSON.parse(resp.replace(/```json/g, '').replace(/```/g, '').trim());
+            entries[0].analysis = analysis;
+            entries[0].tags = analysis.capability_tags || [];
+            entries[0].strengths = analysis.strengths_found || [];
+            await Storage.set('entries', entries);
+            setResult(entries[0]);
+          } catch (e) {
+            console.error('AI error:', e);
+            setResult(entry);
+          } finally { setLoading(false); }
+        } else {
+          setResult(entry);
+        }
+      };
+
+      const questions = [
+        { key: 'completed', label: '今天完成了什么？' },
+        { key: 'achievement', label: '今天最有成就感的瞬间？' },
+        { key: 'difficulty', label: '今天遇到的困难？' },
+        { key: 'helped', label: '今天帮助了谁？谁帮助了我？' },
+        { key: 'learned', label: '今天学到了什么？' }
+      ];
+
+      return (<div className="space-y-6">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-6">今日记录</h2>
+          <div className="space-y-5">
+            {questions.map(q => (<div key={q.key}>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{q.label}</label>
+              <textarea value={form[q.key]} onChange={(e) => setForm(p => ({ ...p, [q.key]: e.target.value }))} rows={3} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-warm-500 outline-none resize-none" />
+            </div>))}
+          </div>
+          <button onClick={handleSubmit} disabled={loading} className="w-full mt-6 py-4 bg-warm-500 hover:bg-warm-600 disabled:bg-gray-300 text-white rounded-xl font-medium flex items-center justify-center gap-2">
+            {loading ? (<><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div><span>保存中...</span></>) : (<span>保存 + AI分析</span>)}
+          </button>
+        </div>
+        {result && (<div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4">分析结果</h3>
+          {result.analysis && (<div className="space-y-4">
+            {result.strengths.length > 0 && (<div>
+              <h4 className="text-sm font-medium text-gray-500">发现的优势</h4>
+              <div className="flex flex-wrap gap-2">
+                {result.strengths.map((s, i) => (<span key={i} className="px-3 py-1 bg-warm-100 text-warm-700 rounded-full text-sm">{s}</span>))}
+              </div>
+            </div>)}
+            {result.analysis.key_moment && (<div className="p-4 bg-yellow-50 rounded-xl">
+              <p className="text-gray-700">{result.analysis.key_moment}</p>
+            </div>)}
+          </div>)}
+        </div>)}
+      </div>);
+    }
+
+    // Strength Map Section
+    function StrengthMap({ aiConfig }) {
+      const [entries, setEntries] = useState([]);
+      const [expanded, setExpanded] = useState(null);
+      const [aggregating, setAggregating] = useState(false);
+      const [aggregation, setAggregation] = useState(null);
+
+      useEffect(() => { loadEntries(); }, []);
+      const loadEntries = async () => { setEntries(await Storage.get('entries', [])); };
+
+      const handleAggregate = async () => {
+        if (entries.length < 3) return;
+        setAggregating(true);
+        try {
+          const prompt = `分析所有日记条目，找出模式。返回JSON：${JSON.stringify(entries.map(e => ({ date: e.date, raw: e.raw, tags: e.tags, strengths: e.strengths })))}`;
+          const resp = await callAI(aiConfig, prompt);
+          const result = JSON.parse(resp.replace(/```json/g, '').replace(/```/g, '').trim());
+          setAggregation(result);
+          await Storage.set('aggregation', result);
+        } catch (e) { console.error(e); }
+        finally { setAggregating(false); }
+      };
+
+      const formatDate = (d) => { const date = new Date(d); return `${date.getMonth() + 1}月${date.getDate()}日`; };
+
+      if (entries.length === 0) return <div className="text-center py-12"><p className="text-gray-500">暂无记录</p></div>;
+
+      return (<div className="space-y-6">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-gray-800 dark:text-white">能力图谱</h2>
+            <button onClick={handleAggregate} disabled={entries.length < 3 || aggregating} className="px-4 py-2 bg-warm-500 hover:bg-warm-600 disabled:bg-gray-300 text-white rounded-xl font-medium">
+              {aggregating ? '分析中...' : '聚合分析'}
+            </button>
+          </div>
+          {entries.length < 3 && (<p className="text-sm text-gray-500">至少记录3天</p>)}
+          {aggregation && (<div className="space-y-4 mb-6">
+            <div>
+              <h4 className="text-sm font-medium text-gray-500">核心优势</h4>
+              {aggregation.top_strengths?.slice(0, 5).map((s, i) => (<div key={i} className="flex items-center gap-2">
+                <span>{['🥇', '🥈', '🥉', '4.', '5.'][i]}</span>
+                <span className="text-gray-800 dark:text-white">{s.name}</span>
+              </div>))}
+            </div>
+            {aggregation.signature_style && (<div className="p-4 bg-warm-50 rounded-xl">
+              <p className="text-gray-700">{aggregation.signature_style}</p>
+            </div>)}
+          </div>)}
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4">时间线</h3>
+          <div className="space-y-3">
+            {entries.map(e => (<div key={e.id || e.date} className="border border-gray-200 rounded-xl overflow-hidden">
+              <button onClick={() => setExpanded(expanded === e.id ? null : e.id)} className="w-full p-4 flex items-center justify-between">
+                <div>
+                  <span className="font-medium text-gray-800 dark:text-white">{formatDate(e.date)}</span>
+                  {e.tags.length > 0 && (<div className="flex flex-wrap gap-1 mt-1">
+                    {e.tags.slice(0, 3).map((t, i) => (<span key={i} className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">{t}</span>))}
+                  </div>)}
+                </div>
+                <span>{expanded === e.id ? '▲' : '▼'}</span>
+              </button>
+              {expanded === e.id && (<div className="p-4 border-t border-gray-200 bg-gray-50">
+                {e.analysis?.key_moment && (<p className="text-sm text-gray-600">{e.analysis.key_moment}</p>)}
+              </div>)}
+            </div>))}
+          </div>
+        </div>
+      </div>);
+    }
+
+    // Value Pitch Section
+    function ValuePitch({ aiConfig }) {
+      const [scenario, setScenario] = useState('');
+      const [target, setTarget] = useState('');
+      const [goal, setGoal] = useState('');
+      const [generating, setGenerating] = useState(false);
+      const [pitch, setPitch] = useState(null);
+
+      const scenarios = ['升职加薪', '求职面试', '商业合作', '结交成功人士', '管理团队'];
+
+      const handleGenerate = async () => {
+        if (!scenario || !target || !goal) return;
+        setGenerating(true);
+        try {
+          const entries = await Storage.get('entries', []);
+          const aggregation = await Storage.get('aggregation', null);
+          const tags = [...new Set(entries.flatMap(e => e.tags))];
+          const strengths = aggregation?.top_strengths?.map(s => s.name) || [];
+          const prompt = `生成价值主张。场景：${scenario}，目标：${target}，目的：${goal}，能力：${tags.join('、')}，优势：${strengths.join('、')}。JSON格式返回。`;
+          const resp = await callAI(aiConfig, prompt);
+          setPitch(JSON.parse(resp.replace(/```json/g, '').replace(/```/g, '').trim()));
+        } catch (e) { console.error(e); }
+        finally { setGenerating(false); }
+      };
+
+      const copyPitch = () => { if (pitch?.core_pitch) navigator.clipboard.writeText(pitch.core_pitch); };
+
+      return (<div className="space-y-6">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-6">价值主张生成器</h2>
+          <div className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">目标场景</label>
+              <select value={scenario} onChange={(e) => setScenario(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-warm-500 outline-none">
+                <option value="">选择场景...</option>
+                {scenarios.map(s => (<option key={s} value={s}>{s}</option>))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">对方是谁？</label>
+              <input type="text" value={target} onChange={(e) => setTarget(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-warm-500 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">我想达成什么？</label>
+              <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:ring-2 focus:ring-warm-500 outline-none resize-none" />
+            </div>
+            <button onClick={handleGenerate} disabled={generating || !scenario || !target || !goal} className="w-full py-4 bg-warm-500 hover:bg-warm-600 disabled:bg-gray-300 text-white rounded-xl font-medium">
+              {generating ? '生成中...' : '生成价值主张'}
+            </button>
+          </div>
+        </div>
+        {pitch && (<div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-gray-800 dark:text-white">你的价值主张</h3>
+            <button onClick={copyPitch} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm">复制</button>
+          </div>
+          <div className="p-4 bg-gradient-to-r from-warm-100 to-warm-50 rounded-xl">
+            <p className="text-lg text-gray-800 dark:text-white">{pitch.core_pitch}</p>
+          </div>
+          {pitch.what_i_offer?.length > 0 && (<div className="mt-4">
+            <h4 className="text-sm font-medium text-gray-500 mb-2">我能提供的</h4>
+            <ul className="space-y-2">
+              {pitch.what_i_offer.map((o, i) => (<li key={i} className="flex items-start gap-2 text-gray-700">
+                <span className="text-warm-500">•</span>
+                <span>{o}</span>
+              </li>))}
+            </ul>
+          </div>)}
+        </div>)}
+      </div>);
+    }
+
+    // Assets Section
+    function Assets() {
+      const [entries, setEntries] = useState([]);
+
+      useEffect(() => { loadEntries(); }, []);
+      const loadEntries = async () => { setEntries(await Storage.get('entries', [])); };
+
+      const aggregation = Storage.get('aggregation', null);
+      const coreCapabilities = aggregation?.top_strengths?.slice(0, 5) || [];
+      
+      const evidenceByStrength = {};
+      entries.forEach(e => {
+        e.strengths.forEach(s => {
+          if (!evidenceByStrength[s]) evidenceByStrength[s] = [];
+          if (e.analysis?.evidence_snippet) evidenceByStrength[s].push(e.analysis.evidence_snippet);
+        });
+      });
+
+      const energyStats = {
+        helping: entries.filter(e => e.analysis?.energy_source?.includes('帮助')).length,
+        learning: entries.filter(e => e.analysis?.energy_source?.includes('学习')).length,
+        solving: entries.filter(e => e.analysis?.energy_source?.includes('解决')).length,
+        recognition: entries.filter(e => e.analysis?.energy_source?.includes('认可')).length,
+        creating: entries.filter(e => e.analysis?.energy_source?.includes('创造')).length
+      };
+      const totalEnergy = Object.values(energyStats).reduce((a, b) => a + b, 1);
+
+      if (entries.length === 0) return <div className="text-center py-12"><p className="text-gray-500">暂无记录</p></div>;
+
+      return (<div className="space-y-6">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4">我的核心能力</h3>
+          {coreCapabilities.length > 0 ? (<div className="space-y-2">
+            {coreCapabilities.map((c, i) => (<div key={i} className="flex items-center gap-2">
+              <span className="text-warm-500 font-bold">{i + 1}.</span>
+              <span className="text-gray-800 dark:text-white">{c.name}</span>
+            </div>))}
+          </div>) : (<p className="text-gray-500">记录足够多后解锁</p>)}
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4">我的能量来源</h3>
+          <div className="space-y-3">
+            {[{ key: 'helping', label: '帮助别人', icon: '🤝' }, { key: 'learning', label: '学习成长', icon: '📚' }, { key: 'solving', label: '解决问题', icon: '🔧' }, { key: 'recognition', label: '获得认可', icon: '🏆' }, { key: 'creating', label: '创造新事物', icon: '💡' }].map(item => {
+              const pct = Math.round((energyStats[item.key] / totalEnergy) * 100);
+              return (<div key={item.key}>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-700">{item.icon} {item.label}</span>
+                  <span className="text-gray-500">{pct}%</span>
+                </div>
+                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="h-full bg-warm-500 rounded-full" style={{ width: `${pct}%` }} />
+                </div>
+              </div>);
+            })}
+          </div>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h3 className="font-bold text-gray-800 dark:text-white mb-4">我的高频证据库</h3>
+          {Object.keys(evidenceByStrength).length > 0 ? (<div className="space-y-4">
+            {Object.entries(evidenceByStrength).slice(0, 5).map(([strength, evidences]) => (<div key={strength}>
+              <h4 className="text-sm font-medium text-warm-600">{strength}</h4>
+              <ul className="space-y-1">
+                {[...new Set(evidences)].slice(0, 3).map((e, i) => (<li key={i} className="text-sm text-gray-600 pl-3 border-l-2 border-warm-200">{e}</li>))}
+              </ul>
+            </div>))}
+          </div>) : (<p className="text-gray-500">记录足够多后解锁</p>)}
+        </div>
+      </div>);
+    }
+
+    // Settings Section
+    function Settings({ aiConfig, onConfigChange, onSupabaseConfigChange, user, onLogout }) {
+      const selectedModel = AI_MODELS.find(m => m.id === aiConfig?.modelId);
+      const supabaseConfig = LocalStorage.get('supabase_config', null);
+
+      const clearData = () => {
+        if (confirm('确定清除所有数据？')) {
+          Storage.remove('entries');
+          Storage.remove('aggregation');
+          window.location.reload();
+        }
+      };
+
+      return (<div className="space-y-6">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">AI配置</h2>
+          <div className="p-4 bg-gray-50 rounded-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-warm-100 rounded-xl flex items-center justify-center">
+                <span className="text-2xl">🤖</span>
+              </div>
+              <div>
+                <div className="font-medium text-gray-800">{selectedModel?.name || 'GLM'}</div>
+                <div className="text-sm text-gray-500">{selectedModel?.provider || '智谱AI'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">云端同步</h2>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+              <span className="text-2xl">☁️</span>
+            </div>
+            <div>
+              <div className="font-medium text-gray-800">云端同步</div>
+              <div className="text-sm text-gray-500">已启用 · Supabase</div>
+            </div>
+          </div>
+        </div>
+
+        {user && (<div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">账户信息</h2>
+          <div className="p-4 bg-gray-50 rounded-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-medium text-gray-800">{user.email}</div>
+                <div className="text-sm text-gray-500">已登录</div>
+              </div>
+              <button onClick={onLogout} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium">退出</button>
+            </div>
+          </div>
+        </div>)}
+
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">数据管理</h2>
+          <button onClick={clearData} className="w-full py-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-medium">清除所有数据</button>
+        </div>
+      </div>);
+    }
+
+    // Main App
+    function App() {
+      const [section, setSection] = useState('daily');
+      // 优先使用开发者预置的 AI 配置，回退到本地存储
+      const getDefaultAiConfig = () => {
+        if (AI_CONFIG.apiKey) {
+          return { modelId: AI_CONFIG.modelId, apiKey: AI_CONFIG.apiKey };
+        }
+        return LocalStorage.get('ai_config', null);
+      };
+      const [aiConfig, setAiConfig] = useState(getDefaultAiConfig());
+      const [showApiModal, setShowApiModal] = useState(false);
+      const [showSupabaseModal, setShowSupabaseModal] = useState(false);
+      const [user, setUser] = useState(null);
+      const supabase = getSupabase();
+
+      useEffect(() => {
+        if (supabase) {
+          supabase.auth.onAuthStateChange((_, session) => {
+            if (session?.user) {
+              setUser(session.user);
+              Storage.init(session.user);
+            } else {
+              setUser(null);
+              Storage.init(null);
+            }
+          });
+          supabase.auth.getSession().then(({ data: { session } }) => {
+            if (session?.user) {
+              setUser(session.user);
+              Storage.init(session.user);
+            }
+          });
+        }
+      }, []);
+
+      useEffect(() => {
+        // 如果开发者没有预置 API Key，才显示配置模态框
+        if (!aiConfig && !AI_CONFIG.apiKey) setShowApiModal(true);
+      }, []);
+
+      const handleLogin = (loggedUser) => {
+        setUser(loggedUser);
+        Storage.init(loggedUser);
+      };
+
+      const handleLogout = async () => {
+        if (supabase) await supabase.auth.signOut();
+        setUser(null);
+        Storage.init(null);
+      };
+
+      // 如果没有配置 Supabase（开发者未填写配置），显示错误提示
+      if (!supabase) {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full p-8">
+              <div className="text-center mb-8">
+                <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">配置未完成</h1>
+                <p className="text-gray-500 dark:text-gray-400">开发者需要在代码中配置 Supabase</p>
+              </div>
+              <div className="p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-xl">
+                <h3 className="font-medium text-gray-800 dark:text-white mb-2">开发者配置步骤：</h3>
+                <ol className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
+                  <li>1. 打开 index.html 文件</li>
+                  <li>2. 找到 SUPABASE_CONFIG 配置区（约第 59 行）</li>
+                  <li>3. 填入你的 Supabase URL 和 API Key</li>
+                  <li>4. 保存文件并重新加载页面</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      if (!user) {
+        return <AuthPage onLogin={handleLogin} />;
+      }
+
+      const renderSection = () => {
+        switch (section) {
+          case 'daily': return <DailyReflection aiConfig={aiConfig} />;
+          case 'map': return <StrengthMap aiConfig={aiConfig} />;
+          case 'pitch': return <ValuePitch aiConfig={aiConfig} />;
+          case 'assets': return <Assets />;
+          case 'settings': return <Settings aiConfig={aiConfig} onConfigChange={() => setShowApiModal(true)} onSupabaseConfigChange={() => setShowSupabaseModal(true)} user={user} onLogout={handleLogout} />;
+          default: return <DailyReflection aiConfig={aiConfig} />;
+        }
+      };
+
+      const navItems = [
+        { id: 'daily', label: '今日记录', icon: '📝' },
+        { id: 'map', label: '能力图谱', icon: '🗺️' },
+        { id: 'pitch', label: '价值主张', icon: '💎' },
+        { id: 'assets', label: '我的资产', icon: '📦' },
+        { id: 'settings', label: '设置', icon: '⚙️' }
+      ];
+
+      return (<div className="min-h-screen">
+        <header className="bg-white dark:bg-gray-800 border-b border-gray-200 sticky top-0 z-40 hidden md:block">
+          <div className="max-w-4xl mx-auto px-4 py-4">
+            <div className="flex items-center justify-between">
+              <h1 className="text-lg font-bold text-gray-800">个人价值智能系统</h1>
+              <nav className="flex gap-1">
+                {navItems.map(item => (<button key={item.id} onClick={() => setSection(item.id)} className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${section === item.id ? 'bg-warm-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+                  <span className="mr-1">{item.icon}</span>{item.label}
+                </button>))}
+              </nav>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-4xl mx-auto px-4 py-6 pb-24 md:pb-6">
+          {renderSection()}
+        </main>
+
+        <BottomNav active={section} onChange={setSection} />
+
+        {showApiModal && (<ApiConfigModal onSave={setAiConfig} onClose={() => setShowApiModal(false)} current={aiConfig} />)}
+        {showSupabaseModal && (<SupabaseConfigModal onClose={() => setShowSupabaseModal(false)} />)}
+      </div>);
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
