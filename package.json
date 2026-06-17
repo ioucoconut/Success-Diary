@@ -1,0 +1,13 @@
+{
+  "name": "success-journal",
+  "version": "1.0.0",
+  "description": "成功日记 - 记录你做成的事，发现你真正的价值",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5"
+  }
+}

@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>成功日记 - 发现你的价值</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    const CONFIG = {
+      SUPABASE_URL: 'https://sykjdigleucipiggmckk.supabase.co',
+      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5a2pkaWdsZXVjaXBpZ2dtY2trIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMjIyNjksImV4cCI6MjA5NjY5ODI2OX0.CaQffzcvmDlqBlSAl3I8C_yFig-Q2OIn4EQxE_Yfyb0'
+    };
+
+    const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+
+    const LocalStorage = {
+      get: (k, d) => { try { const i = localStorage.getItem(k); return i ? JSON.parse(i) : d; } catch { return d; } },
+      set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.error(e); } }
+    };
+
+    function App() {
+      const [user, setUser] = React.useState(null);
+      const [loading, setLoading] = React.useState(true);
+      const [activeTab, setActiveTab] = React.useState('daily');
+      const [darkMode, setDarkMode] = React.useState(LocalStorage.get('darkMode', false));
+
+      React.useEffect(() => {
+        const fetchUser = async () => {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) setUser(session.user);
+          setLoading(false);
+        };
+        supabase.auth.onAuthStateChange((_, session) => setUser(session?.user || null));
+        fetchUser();
+      }, []);
+
+      React.useEffect(() => {
+        LocalStorage.set('darkMode', darkMode);
+        document.documentElement.classList.toggle('dark', darkMode);
+      }, [darkMode]);
+
+      if (loading) {
+        return (<div className="min-h-screen flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+        </div>);
+      }
+
+      if (!user) return <AuthPage />;
+
+      const tabs = [
+        { id: 'daily', name: '今日记录', icon: 'fa-calendar-plus-o' },
+        { id: 'calendar', name: '日历', icon: 'fa-calendar' },
+        { id: 'strengths', name: '能力图谱', icon: 'fa-bar-chart' },
+        { id: 'pitch', name: '价值主张', icon: 'fa-bullhorn' },
+        { id: 'settings', name: '设置', icon: 'fa-cog' }
+      ];
+
+      return (
+        <div className={`min-h-screen pb-20 ${darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-50 text-gray-900'}`}>
+          <header className={`${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-sm sticky top-0 z-50`}>
+            <div className="max-w-4xl mx-auto px-4 py-4">
+              <div className="flex items-center justify-between">
+                <h1 className="text-xl font-bold text-blue-600">成功日记</h1>
+                <button onClick={() => setDarkMode(!darkMode)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'}`}>
+                  <i className={`fa ${darkMode ? 'fa-sun-o' : 'fa-moon-o'}`}></i>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-4xl mx-auto px-4 py-6">
+            {activeTab === 'daily' && <DailyLog user={user} darkMode={darkMode} />}
+            {activeTab === 'calendar' && <CalendarView user={user} darkMode={darkMode} />}
+            {activeTab === 'strengths' && <StrengthMap user={user} darkMode={darkMode} />}
+            {activeTab === 'pitch' && <ValuePitch user={user} darkMode={darkMode} />}
+            {activeTab === 'settings' && <SettingsPage user={user} darkMode={darkMode} setDarkMode={setDarkMode} />}
+          </main>
+
+          <nav className={`fixed bottom-0 left-0 right-0 ${darkMode ? 'bg-gray-800' : 'bg-white'} border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className="max-w-4xl mx-auto flex justify-around">
+              {tabs.map(tab => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center py-2 px-4 flex-1 transition-colors ${activeTab === tab.id ? 'text-blue-600' : darkMode ? 'text-gray-400 hover:text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}>
+                  <i className={`fa ${tab.icon} text-lg mb-1`}></i>
+                  <span className="text-xs">{tab.name}</span>
+                </button>
+              ))}
+            </div>
+          </nav>
+        </div>
+      );
+    }
+
+    function AuthPage() {
+      const [mode, setMode] = React.useState('login');
+      const [email, setEmail] = React.useState('');
+      const [password, setPassword] = React.useState('');
+      const [error, setError] = React.useState('');
+      const [loading, setLoading] = React.useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+          if (mode === 'login') {
+            await supabase.auth.signInWithPassword({ email, password });
+          } else {
+            await supabase.auth.signUp({ email, password });
+            alert('注册成功！请检查邮箱验证链接');
+            setMode('login');
+          }
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleForgotPassword = async () => {
+        if (!email) { setError('请输入邮箱'); return; }
+        try {
+          await supabase.auth.resetPasswordForEmail(email);
+          alert('密码重置链接已发送到你的邮箱');
+        } catch (err) {
+          setError(err.message);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-blue-50 to-purple-50">
+          <div className="w-full max-w-md">
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-bold text-blue-600 mb-2">成功日记</h1>
+              <p className="text-gray-600">记录你做成的事，发现你真正的价值</p>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-xl p-6">
+              <div className="flex mb-6">
+                <button onClick={() => setMode('login')} className={`flex-1 py-2 text-center font-medium transition-colors ${mode === 'login' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>登录</button>
+                <button onClick={() => setMode('register')} className={`flex-1 py-2 text-center font-medium transition-colors ${mode === 'register' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>注册</button>
+              </div>
+
+              <form onSubmit={handleSubmit}>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-1">邮箱</label>
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="your@email.com" required />
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-medium mb-1">密码</label>
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="••••••••" required />
+                </div>
+
+                {error && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
+
+                <button type="submit" disabled={loading} className="w-full py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  {loading ? '处理中...' : (mode === 'login' ? '登录' : '注册')}
+                </button>
+
+                {mode === 'login' && (
+                  <button type="button" onClick={handleForgotPassword} className="w-full mt-4 text-sm text-gray-500 hover:text-gray-700">忘记密码？</button>
+                )}
+              </form>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function DailyLog({ user, darkMode }) {
+      const [entry, setEntry] = React.useState('');
+      const [analysis, setAnalysis] = React.useState(null);
+      const [loading, setLoading] = React.useState(false);
+      const [hasAnalysis, setHasAnalysis] = React.useState(false);
+      const [isStarred, setIsStarred] = React.useState(false);
+      const [pinnedMoments, setPinnedMoments] = React.useState([]);
+      const today = new Date().toISOString().split('T')[0];
+
+      React.useEffect(() => {
+        const loadEntry = async () => {
+          const { data, error } = await supabase.from('journal_entries').select('raw_text, ai_analysis, is_starred, pinned_moments').eq('user_id', user.id).eq('date', today).single();
+          if (data) {
+            setEntry(data.raw_text);
+            if (data.ai_analysis) { setAnalysis(data.ai_analysis); setHasAnalysis(true); }
+            setIsStarred(data.is_starred || false);
+            setPinnedMoments(data.pinned_moments || []);
+          }
+        };
+        loadEntry();
+      }, [user.id, today]);
+
+      React.useEffect(() => {
+        const timer = setInterval(() => { if (entry) LocalStorage.set(`draft_${user.id}_${today}`, entry); }, 30000);
+        return () => clearInterval(timer);
+      }, [entry, user.id, today]);
+
+      const handleAnalyze = async () => {
+        if (!entry.trim()) { alert('请先输入日记内容'); return; }
+        setLoading(true);
+        try {
+          const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: entry, userId: user.id, entryDate: today })
+          });
+          const result = await response.json();
+          if (response.ok) { setAnalysis(result); setHasAnalysis(true); }
+          else throw new Error(result.error);
+        } catch (err) { alert('分析失败: ' + err.message); }
+        finally { setLoading(false); }
+      };
+
+      const toggleStar = async () => {
+        const newStarred = !isStarred;
+        setIsStarred(newStarred);
+        await supabase.from('journal_entries').update({ is_starred: newStarred }).eq('user_id', user.id).eq('date', today);
+      };
+
+      const pinAIMoment = async () => {
+        if (!analysis?.key_moment) return;
+        const newMoment = {
+          text: analysis.key_moment,
+          source: 'ai',
+          pinned_at: new Date().toISOString()
+        };
+        const newPinnedMoments = [...pinnedMoments, newMoment];
+        setPinnedMoments(newPinnedMoments);
+        await supabase.from('journal_entries').update({ pinned_moments: newPinnedMoments }).eq('user_id', user.id).eq('date', today);
+        alert('已标记为重要时刻！');
+      };
+
+      const handleTextSelection = () => {
+        const selection = window.getSelection();
+        const selectedText = selection?.toString().trim();
+        if (selectedText && selectedText.length > 5) {
+          if (confirm(`标记以下内容为重要时刻？\n\n${selectedText}`)) {
+            const newMoment = {
+              text: selectedText,
+              source: 'user',
+              pinned_at: new Date().toISOString()
+            };
+            const newPinnedMoments = [...pinnedMoments, newMoment];
+            setPinnedMoments(newPinnedMoments);
+            supabase.from('journal_entries').update({ pinned_moments: newPinnedMoments }).eq('user_id', user.id).eq('date', today);
+            selection.removeAllRanges();
+          }
+        }
+      };
+
+      return (
+        <div>
+          <div className="mb-6">
+            <h2 className="text-xl font-bold mb-2">今日记录</h2>
+            <p className="text-gray-500 text-sm">{today}</p>
+          </div>
+
+          <textarea value={entry} onChange={(e) => setEntry(e.target.value)} onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection} className={`w-full h-48 px-4 py-3 rounded-xl border ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none`} placeholder="今天做成了什么？遇到了什么困难、怎么解决的？和谁有过好的互动？选中文字可标记为重要时刻" />
+
+          <div className="mt-4">
+            <button onClick={handleAnalyze} disabled={loading} className="w-full py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              {loading ? (<><i className="fa fa-spinner animate-spin"></i>正在提炼你的能力信号…</>) : hasAnalysis ? (<><i className="fa fa-refresh"></i>重新分析</>) : (<><i className="fa fa-magic"></i>保存 + AI分析</>)}
+            </button>
+          </div>
+
+          {analysis && (
+            <div className={`mt-6 p-6 rounded-xl ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg`}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <i className="fa fa-lightbulb-o text-yellow-500"></i>AI 分析结果
+                </h3>
+                <button onClick={toggleStar} className={`text-2xl transition-transform hover:scale-110 ${isStarred ? 'text-yellow-500' : 'text-gray-400'}`} title={isStarred ? '取消标记里程碑' : '标记为重要里程碑'}>
+                  {isStarred ? '★' : '☆'}
+                </button>
+              </div>
+
+              {analysis.strengths_found?.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-sm font-medium text-gray-500 mb-2">发现的优势</p>
+                  <div className="flex flex-wrap gap-2">
+                    {analysis.strengths_found.map((s, i) => (<span key={i} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">{s}</span>))}
+                  </div>
+                </div>
+              )}
+
+              {analysis.key_moment && (
+                <div className="mb-4 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded-r-lg">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-gray-500 mb-1">关键瞬间</p>
+                    <button onClick={pinAIMoment} className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                      <i className="fa fa-flag"></i> 标记这个时刻
+                    </button>
+                  </div>
+                  <p className="italic">{analysis.key_moment}</p>
+                </div>
+              )}
+
+              {analysis.value_to_others && (
+                <div className="mb-4">
+                  <p className="text-sm font-medium text-gray-500 mb-1">为他人创造的价值</p>
+                  <p className="text-green-600 font-medium">{analysis.value_to_others}</p>
+                </div>
+              )}
+
+              {analysis.capability_tags?.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-sm font-medium text-gray-500 mb-2">能力标签</p>
+                  <div className="flex flex-wrap gap-2">
+                    {analysis.capability_tags.map((t, i) => (<span key={i} className={`px-2 py-1 text-xs rounded ${darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>{t}</span>))}
+                  </div>
+                </div>
+              )}
+
+              {pinnedMoments.length > 0 && (
+                <div className="mb-4 p-4 bg-purple-50 rounded-lg">
+                  <p className="text-sm font-medium text-gray-500 mb-2">已标记的重要时刻</p>
+                  <div className="space-y-2">
+                    {pinnedMoments.map((m, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className={`text-xs px-2 py-0.5 rounded ${m.source === 'ai' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                          {m.source === 'ai' ? 'AI提炼' : '我标记'}
+                        </span>
+                        <p className="text-sm">{m.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {analysis.energy_source && (
+                <div className="mb-4">
+                  <p className="text-sm font-medium text-gray-500 mb-1">能量来源</p>
+                  <p>{analysis.energy_source}</p>
+                </div>
+              )}
+
+              {analysis.career_signal && (
+                <div>
+                  <p className="text-sm font-medium text-gray-500 mb-1">职业信号</p>
+                  <p>{analysis.career_signal}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function CalendarView({ user, darkMode }) {
+      const [currentDate, setCurrentDate] = React.useState(new Date());
+      const [entries, setEntries] = React.useState([]);
+      const [selectedDate, setSelectedDate] = React.useState(null);
+      const [selectedEntry, setSelectedEntry] = React.useState(null);
+      const [filterStarred, setFilterStarred] = React.useState(false);
+
+      React.useEffect(() => {
+        const fetchEntries = async () => {
+          const year = currentDate.getFullYear();
+          const month = currentDate.getMonth();
+          const startDate = new Date(year, month, 1).toISOString().split('T')[0];
+          const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
+          const { data } = await supabase.from('journal_entries').select('date, capability_tags, is_starred').eq('user_id', user.id).gte('date', startDate).lte('date', endDate);
+          if (data) setEntries(data);
+        };
+        fetchEntries();
+      }, [user.id, currentDate]);
+
+      const getDaysInMonth = () => {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const days = [];
+        for (let i = 0; i < firstDay; i++) days.push(null);
+        for (let i = 1; i <= daysInMonth; i++) days.push(i);
+        return days;
+      };
+
+      const getEntryForDate = (day) => {
+        if (!day) return null;
+        const dateStr = new Date(currentDate.getFullYear(), currentDate.getMonth(), day).toISOString().split('T')[0];
+        if (filterStarred) {
+          return entries.find(e => e.date === dateStr && e.is_starred);
+        }
+        return entries.find(e => e.date === dateStr);
+      };
+
+      const handleDateClick = async (day) => {
+        if (!day) return;
+        const dateStr = new Date(currentDate.getFullYear(), currentDate.getMonth(), day).toISOString().split('T')[0];
+        setSelectedDate(dateStr);
+        const { data } = await supabase.from('journal_entries').select('*').eq('user_id', user.id).eq('date', dateStr).single();
+        setSelectedEntry(data || null);
+      };
+
+      const today = new Date().toISOString().split('T')[0];
+      const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+
+      return (
+        <div>
+          <div className="mb-6">
+            <h2 className="text-xl font-bold mb-2">日历视图</h2>
+          </div>
+
+          <div className={`rounded-xl p-4 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg`}>
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}>
+                <i className="fa fa-chevron-left"></i>
+              </button>
+              <h3 className="text-lg font-semibold">{currentDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long' })}</h3>
+              <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))} className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}>
+                <i className="fa fa-chevron-right"></i>
+              </button>
+            </div>
+
+            <div className="flex justify-end mb-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={filterStarred} onChange={(e) => setFilterStarred(e.target.checked)} className="rounded" />
+                <span className="text-sm text-gray-500">只显示重要时刻</span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1">
+              {weekdays.map(d => (<div key={d} className="text-center text-sm font-medium text-gray-500 py-2">{d}</div>))}
+              {getDaysInMonth().map((day, i) => {
+                if (!day) return <div key={i}></div>;
+                const entry = getEntryForDate(day);
+                const dateStr = new Date(currentDate.getFullYear(), currentDate.getMonth(), day).toISOString().split('T')[0];
+                const isToday = dateStr === today;
+                const isSelected = selectedDate === dateStr;
+
+                return (
+                  <button key={i} onClick={() => handleDateClick(day)} className={`relative h-10 rounded-lg transition-colors ${
+                    isSelected ? 'bg-blue-600 text-white' : isToday ? 'bg-blue-100 text-blue-700' : darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                  }`}>
+                    {day}
+                    {entry && entry.is_starred && <span className="absolute bottom-1 right-1 text-xs">⭐</span>}
+                    {entry && !entry.is_starred && <span className="absolute bottom-1 right-1 w-2 h-2 bg-green-500 rounded-full"></span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {selectedDate && (
+            <div className={`mt-6 p-6 rounded-xl ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg`}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">{selectedDate}</h3>
+                {selectedEntry?.is_starred && <span className="text-yellow-500">⭐ 重要里程碑</span>}
+              </div>
+              {selectedEntry ? (
+                <div>
+                  {selectedEntry.pinned_moments?.length > 0 && (
+                    <div className="mb-4 p-4 bg-purple-50 rounded-lg">
+                      <p className="text-sm font-medium text-gray-500 mb-2">📌 重要时刻</p>
+                      <div className="space-y-2">
+                        {selectedEntry.pinned_moments.map((m, i) => (
+                          <div key={i} className="flex items-start gap-2">
+                            <span className={`text-xs px-2 py-0.5 rounded ${m.source === 'ai' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                              {m.source === 'ai' ? 'AI提炼' : '我标记'}
+                            </span>
+                            <p className="text-sm">{m.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-sm font-medium text-gray-500 mb-2">日记内容</p>
+                  <p className="whitespace-pre-wrap mb-4">{selectedEntry.raw_text}</p>
+                  {selectedEntry.ai_analysis && (
+                    <div>
+                      <p className="text-sm font-medium text-gray-500 mb-2">AI 分析</p>
+                      {selectedEntry.ai_analysis.strengths_found && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {selectedEntry.ai_analysis.strengths_found.map((s, i) => (<span key={i} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm">{s}</span>))}
+                        </div>
+                      )}
+                      {selectedEntry.ai_analysis.key_moment && (<p className="text-sm italic">{selectedEntry.ai_analysis.key_moment}</p>)}
+                    </div>
+                  )}
+                </div>
+              ) : (<p className="text-gray-500">这一天没有记录</p>)}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function StrengthMap({ user, darkMode }) {
+      const [entries, setEntries] = React.useState([]);
+      const [aggregate, setAggregate] = React.useState(null);
+      const [loading, setLoading] = React.useState(false);
+      const [lastUpdated, setLastUpdated] = React.useState(null);
+      const [activeTab, setActiveTab] = React.useState('analysis');
+      const [filterTag, setFilterTag] = React.useState('');
+
+      React.useEffect(() => {
+        const fetchEntries = async () => {
+          const { data } = await supabase.from('journal_entries').select('capability_tags, pinned_moments, date').eq('user_id', user.id);
+          if (data) setEntries(data);
+        };
+        const fetchSettings = async () => {
+          const { data } = await supabase.from('user_settings').select('aggregate_cache, aggregate_updated_at').eq('user_id', user.id).single();
+          if (data?.aggregate_cache) { setAggregate(data.aggregate_cache); setLastUpdated(data.aggregate_updated_at); }
+        };
+        fetchEntries();
+        fetchSettings();
+      }, [user.id]);
+
+      const handleAggregate = async () => {
+        if (entries.length < 3) { alert('至少需要3条日记'); return; }
+        setLoading(true);
+        try {
+          const response = await fetch('/api/aggregate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id })
+          });
+          const result = await response.json();
+          if (response.ok) { setAggregate(result); setLastUpdated(new Date().toISOString()); }
+          else throw new Error(result.error);
+        } catch (err) { alert('分析失败: ' + err.message); }
+        finally { setLoading(false); }
+      };
+
+      const tagCount = {};
+      entries.forEach(e => e.capability_tags?.forEach(t => tagCount[t] = (tagCount[t] || 0) + 1));
+      const sortedTags = Object.entries(tagCount).sort((a, b) => b[1] - a[1]);
+
+      const allPinnedMoments = entries.flatMap(e => 
+        (e.pinned_moments || []).map(m => ({ 
+          ...m, 
+          date: e.date,
+          tags: e.capability_tags 
+        }))
+      ).sort((a, b) => new Date(b.pinned_at) - new Date(a.pinned_at));
+
+      const filteredMoments = filterTag 
+        ? allPinnedMoments.filter(m => m.tags?.includes(filterTag))
+        : allPinnedMoments;
+
+      return (
+        <div>
+          <div className="mb-6">
+            <h2 className="text-xl font-bold mb-2">能力图谱</h2>
+            <p className="text-gray-500 text-sm">分析你的优势模式和成长轨迹</p>
+          </div>
+
+          <div className={`rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg mb-6`}>
+            <h3 className="text-lg font-semibold mb-4">统计概览</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 rounded-lg bg-blue-50">
+                <p className="text-3xl font-bold text-blue-600">{entries.length}</p>
+                <p className="text-sm text-gray-500">总日记数</p>
+              </div>
+              <div className="p-4 rounded-lg bg-green-50">
+                <p className="text-3xl font-bold text-green-600">{Object.keys(tagCount).length}</p>
+                <p className="text-sm text-gray-500">能力标签数</p>
+              </div>
+            </div>
+
+            {sortedTags.length > 0 && (
+              <div className="mt-4">
+                <p className="text-sm font-medium text-gray-500 mb-2">最常用的能力标签</p>
+                <div className="flex flex-wrap gap-2">
+                  {sortedTags.slice(0, 5).map(([tag, count]) => (<span key={tag} className={`px-3 py-1 rounded-full text-sm ${darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`} style={{ fontSize: `${12 + count * 2}px` }}>{tag} ({count})</span>))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 mb-6">
+            <button onClick={() => setActiveTab('analysis')} className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${activeTab === 'analysis' ? 'bg-purple-600 text-white' : darkMode ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+              📊 能力分析
+            </button>
+            <button onClick={() => setActiveTab('moments')} className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${activeTab === 'moments' ? 'bg-purple-600 text-white' : darkMode ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+              ✨ 重要时刻 ({allPinnedMoments.length})
+            </button>
+          </div>
+
+          {activeTab === 'analysis' && (
+            <>
+              <button onClick={handleAggregate} disabled={loading || entries.length < 3} className="w-full py-3 bg-purple-600 text-white rounded-xl font-medium hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-6">
+                {loading ? (<><i className="fa fa-spinner animate-spin"></i>正在分析你的能力图谱…</>) : (<><i className="fa fa-bar-chart"></i>聚合分析</>)}
+              </button>
+
+              {aggregate ? (
+                <div className={`rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg`}>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-semibold">深度分析结果</h3>
+                    {lastUpdated && <p className="text-xs text-gray-500">更新于: {new Date(lastUpdated).toLocaleDateString('zh-CN')}</p>}
+                  </div>
+
+                  {aggregate.top_strengths?.length > 0 && (
+                    <div className="mb-6">
+                      <p className="text-sm font-medium text-gray-500 mb-3">核心优势</p>
+                      <div className="space-y-3">
+                        {aggregate.top_strengths.map((s, i) => (
+                          <div key={i} className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gradient-to-r from-blue-50 to-purple-50'}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-semibold">#{i + 1} {s.name}</span>
+                              <span className="px-2 py-1 rounded text-xs bg-blue-100 text-blue-700">{s.evidence_count} 次证据</span>
+                            </div>
+                            <p className="text-sm text-gray-600">{s.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {aggregate.signature_style && (
+                    <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded-r-lg">
+                      <p className="text-sm font-medium text-gray-500 mb-1">标志性风格</p>
+                      <p className="italic">{aggregate.signature_style}</p>
+                    </div>
+                  )}
+
+                  {aggregate.blind_spots?.length > 0 && (
+                    <div className="mb-6">
+                      <p className="text-sm font-medium text-gray-500 mb-2">盲区提示</p>
+                      <ul className="space-y-1">
+                        {aggregate.blind_spots.map((s, i) => (<li key={i} className="text-sm flex items-center gap-2"><i className="fa fa-lightbulb-o text-yellow-500"></i>{s}</li>))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {aggregate.growth_arc && (
+                    <div className="mb-6">
+                      <p className="text-sm font-medium text-gray-500 mb-2">成长轨迹</p>
+                      <p>{aggregate.growth_arc}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className={`rounded-xl p-8 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg text-center`}>
+                  <p className="text-gray-500 mb-2">📊 开始你的能力分析之旅</p>
+                  <p className="text-sm text-gray-400">记录至少3条日记后，点击上方按钮开始聚合分析</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {activeTab === 'moments' && (
+            <div className={`rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg`}>
+              <div className="flex flex-wrap gap-2 mb-4">
+                <button onClick={() => setFilterTag('')} className={`px-3 py-1 rounded-full text-sm transition-colors ${!filterTag ? 'bg-purple-600 text-white' : darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                  全部
+                </button>
+                {sortedTags.map(([tag]) => (
+                  <button key={tag} onClick={() => setFilterTag(filterTag === tag ? '' : tag)} className={`px-3 py-1 rounded-full text-sm transition-colors ${filterTag === tag ? 'bg-purple-600 text-white' : darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                    {tag}
+                  </button>
+                ))}
+              </div>
+
+              {filteredMoments.length > 0 ? (
+                <div className="space-y-4">
+                  {filteredMoments.map((m, i) => (
+                    <div key={i} className={`p-4 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-purple-50'}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-gray-500">{m.date}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded ${m.source === 'ai' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                          {m.source === 'ai' ? 'AI提炼' : '我标记'}
+                        </span>
+                      </div>
+                      <p className="text-sm">{m.text}</p>
+                      {m.tags && m.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {m.tags.map((t, j) => (<span key={j} className="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-600">{t}</span>))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500 mb-2">✨ 还没有标记重要时刻</p>
+                  <p className="text-sm text-gray-400">在日记分析结果中，点击"标记这个时刻"或选中文字来创建重要时刻</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function ValuePitch({ user, darkMode }) {
+      const [scenario, setScenario] = React.useState('升职加薪');
+      const [audience, setAudience] = React.useState('');
+      const [goal, setGoal] = React.useState('');
+      const [pitch, setPitch] = React.useState(null);
+      const [loading, setLoading] = React.useState(false);
+
+      const scenarios = ['升职加薪', '结交成功人士', '商业合作', '求职面试', '自定义'];
+
+      const handleGenerate = async () => {
+        if (!audience.trim() || !goal.trim()) { alert('请填写对方和目标'); return; }
+        setLoading(true);
+        try {
+          const response = await fetch('/api/pitch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id, scenario, audience, goal })
+          });
+          const result = await response.json();
+          if (response.ok) setPitch(result);
+          else throw new Error(result.error);
+        } catch (err) { alert('生成失败: ' + err.message); }
+        finally { setLoading(false); }
+      };
+
+      const handleCopy = async () => {
+        if (!pitch?.core_pitch) return;
+        const text = `${pitch.core_pitch}\n\n我能提供：\n${pitch.what_i_offer?.join('\n') || ''}\n\n对话开场白：\n${pitch.conversation_hooks?.join('\n') || ''}`;
+        try {
+          await navigator.clipboard.writeText(text);
+          alert('已复制到剪贴板');
+        } catch (err) { alert('复制失败'); }
+      };
+
+      return (
+        <div>
+          <div className="mb-6">
+            <h2 className="text-xl font-bold mb-2">价值主张</h2>
+            <p className="text-gray-500 text-sm">生成个性化的价值主张</p>
+          </div>
+
+          <div className={`rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg mb-6`}>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">目标场景</label>
+              <select value={scenario} onChange={(e) => setScenario(e.target.value)} className={`w-full px-4 py-2 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}>
+                {scenarios.map(s => (<option key={s} value={s}>{s}</option>))}
+              </select>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">对方是谁</label>
+              <input type="text" value={audience} onChange={(e) => setAudience(e.target.value)} className={`w-full px-4 py-2 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`} placeholder="例如：我的直属上司" />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">我想达成什么</label>
+              <input type="text" value={goal} onChange={(e) => setGoal(e.target.value)} className={`w-full px-4 py-2 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`} placeholder="例如：让他看到我值得被提拔" />
+            </div>
+
+            <button onClick={handleGenerate} disabled={loading} className="w-full py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              {loading ? (<><i className="fa fa-spinner animate-spin"></i>生成中...</>) : (<><i className="fa fa-magic"></i>生成价值主张</>)}
+            </button>
+          </div>
+
+          {pitch && (
+            <div className={`rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-gradient-to-br from-blue-50 to-purple-50'} shadow-lg`}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">价值主张卡片</h3>
+                <button onClick={handleCopy} className={`px-3 py-1 rounded-lg text-sm flex items-center gap-1 transition-colors ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-white hover:bg-gray-100'}`}>
+                  <i className="fa fa-copy"></i>复制
+                </button>
+              </div>
+
+              {pitch.core_pitch && (
+                <div className="mb-6">
+                  <p className="text-sm font-medium text-gray-500 mb-2">核心主张</p>
+                  <p className="text-lg font-semibold">{pitch.core_pitch}</p>
+                </div>
+              )}
+
+              {pitch.what_i_offer?.length > 0 && (
+                <div className="mb-6">
+                  <p className="text-sm font-medium text-gray-500 mb-2">我能提供什么</p>
+                  <ul className="space-y-2">
+                    {pitch.what_i_offer.map((i, idx) => (<li key={idx} className="flex items-start gap-2"><i className="fa fa-check-circle text-green-500 mt-0.5"></i>{i}</li>))}
+                  </ul>
+                </div>
+              )}
+
+              {pitch.conversation_hooks?.length > 0 && (
+                <div className="mb-6">
+                  <p className="text-sm font-medium text-gray-500 mb-2">对话开场白</p>
+                  <ul className="space-y-2">
+                    {pitch.conversation_hooks.map((h, idx) => (<li key={idx} className="flex items-start gap-2"><i className="fa fa-comment-o text-blue-500 mt-0.5"></i>{h}</li>))}
+                  </ul>
+                </div>
+              )}
+
+              {pitch.watch_out_for && (
+                <div className="p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded-r-lg">
+                  <p className="text-sm font-medium text-gray-500 mb-1">注意事项</p>
+                  <p className="text-sm">{pitch.watch_out_for}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function SettingsPage({ user, darkMode, setDarkMode }) {
+      const [apiKey, setApiKey] = React.useState('');
+      const [model, setModel] = React.useState('claude-sonnet-4-6');
+      const [showApiKey, setShowApiKey] = React.useState(false);
+      const [message, setMessage] = React.useState('');
+
+      React.useEffect(() => {
+        const fetchSettings = async () => {
+          const { data } = await supabase.from('user_settings').select('anthropic_api_key, preferred_model').eq('user_id', user.id).single();
+          if (data) { setApiKey(data.anthropic_api_key || ''); setModel(data.preferred_model || 'claude-sonnet-4-6'); }
+        };
+        fetchSettings();
+      }, [user.id]);
+
+      const handleSaveSettings = async () => {
+        try {
+          await supabase.from('user_settings').upsert({ user_id: user.id, anthropic_api_key: apiKey, preferred_model: model, dark_mode: darkMode });
+          setMessage('设置已保存');
+          setTimeout(() => setMessage(''), 3000);
+        } catch (err) { alert('保存失败: ' + err.message); }
+      };
+
+      const handleChangePassword = async () => {
+        try {
+          await supabase.auth.resetPasswordForEmail(user.email);
+          alert('密码重置链接已发送到你的邮箱');
+        } catch (err) { alert('操作失败: ' + err.message); }
+      };
+
+      const handleTestKey = async () => {
+        if (!apiKey) { alert('请先输入 API Key'); return; }
+        try {
+          const response = await fetch('/api/test-key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey })
+          });
+          const result = await response.json();
+          alert(result.success ? 'API Key 验证成功' : 'API Key 无效: ' + result.message);
+        } catch (err) { alert('验证失败: ' + err.message); }
+      };
+
+      const handleExportData = async () => {
+        try {
+          const { data } = await supabase.from('journal_entries').select('*').eq('user_id', user.id);
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `journal_entries_${new Date().toISOString().split('T')[0]}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+        } catch (err) { alert('导出失败: ' + err.message); }
+      };
+
+      const handleDeleteAllData = async () => {
+        if (!confirm('确定要删除所有数据吗？此操作不可恢复！')) return;
+        try {
+          await supabase.from('journal_entries').delete().eq('user_id', user.id);
+          await supabase.from('user_settings').delete().eq('user_id', user.id);
+          alert('所有数据已删除');
+        } catch (err) { alert('删除失败: ' + err.message); }
+      };
+
+      const handleLogout = async () => await supabase.auth.signOut();
+
+      return (
+        <div>
+          <div className="mb-6">
+            <h2 className="text-xl font-bold mb-2">设置</h2>
+          </div>
+
+          {message && (<div className="mb-6 p-4 bg-green-50 text-green-600 rounded-lg text-sm">{message}</div>)}
+
+          <div className={`rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg mb-6`}>
+            <h3 className="text-lg font-semibold mb-4">账户信息</h3>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-gray-500">邮箱</span>
+              <span>{user.email}</span>
+            </div>
+            <button onClick={handleChangePassword} className={`w-full py-2 rounded-lg transition-colors ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} text-sm`}>修改密码</button>
+          </div>
+
+          <div className={`rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg mb-6`}>
+            <h3 className="text-lg font-semibold mb-4">AI 配置</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Anthropic API Key</label>
+              <div className="relative">
+                <input type={showApiKey ? 'text' : 'password'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className={`w-full px-4 py-2 pr-20 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`} placeholder="sk-xxx..." />
+                <button onClick={() => setShowApiKey(!showApiKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700">
+                  <i className={`fa ${showApiKey ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">模型选择</label>
+              <select value={model} onChange={(e) => setModel(e.target.value)} className={`w-full px-4 py-2 rounded-lg border ${darkMode ? 'bg-gray-700 border-gray-600' : 'border-gray-300'} focus:ring-2 focus:ring-blue-500 focus:border-transparent`}>
+                <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+                <option value="claude-opus-4-5">claude-opus-4-5</option>
+              </select>
+            </div>
+
+            <button onClick={handleTestKey} className="w-full py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors text-sm">测试连接</button>
+          </div>
+
+          <div className={`rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg mb-6`}>
+            <h3 className="text-lg font-semibold mb-4">外观</h3>
+            <div className="flex items-center justify-between">
+              <span className="text-gray-500">深色模式</span>
+              <button onClick={() => setDarkMode(!darkMode)} className={`relative w-12 h-6 rounded-full transition-colors ${darkMode ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${darkMode ? 'translate-x-7' : 'translate-x-1'}`}></span>
+              </button>
+            </div>
+          </div>
+
+          <div className={`rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg mb-6`}>
+            <h3 className="text-lg font-semibold mb-4">数据管理</h3>
+            <button onClick={handleExportData} className="w-full py-2 mb-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm flex items-center justify-center gap-2">
+              <i className="fa fa-download"></i>导出所有日记
+            </button>
+            <button onClick={handleDeleteAllData} className="w-full py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm flex items-center justify-center gap-2">
+              <i className="fa fa-trash"></i>清除所有数据
+            </button>
+          </div>
+
+          <div className={`rounded-xl p-6 ${darkMode ? 'bg-gray-800' : 'bg-white'} shadow-lg`}>
+            <button onClick={handleLogout} className="w-full py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">退出登录</button>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
